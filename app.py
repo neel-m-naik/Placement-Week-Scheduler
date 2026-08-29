@@ -107,7 +107,7 @@ col4.metric("Last Disruption Churn", f"{st.session_state.last_churn} slots", del
 st.markdown("---")
 
 # Main Content Tabs
-tab1, tab2, tab3 = st.tabs(["📅 Master Schedule", "🔄 Replan & Disruption Diff", "⚠️ Diagnostic Log"])
+tab1, tab2, tab3, tab4 = st.tabs(["📅 Master Schedule", "🔄 Replan & Disruption Diff", "⚠️ Diagnostic Log", "📊 Capacity Math"])
 
 with tab1:
     st.subheader("Master Interview Timetable")
@@ -172,6 +172,71 @@ with tab3:
         st.dataframe(pd.DataFrame(unsched_records), use_container_width=True, hide_index=True)
     else:
         st.success("100% of candidate demands were scheduled without conflicts!")
+
+with tab4:
+    st.subheader("Demand vs. Room-Minute Capacity, by Tier")
+    st.caption(
+        "Match rate is fundamentally bounded by physical room-minutes, not just algorithm quality. "
+        "This shows why each tier lands where it does."
+    )
+
+    from models import PriorityTier
+    ROOM_CAPACITY_PER_DAY = len(st.session_state.rooms) * 480  # rooms x 8hr day in minutes
+
+    tier_day_windows = {
+        PriorityTier.TIER_1: [1, 2],
+        PriorityTier.TIER_2: [1, 2, 3],
+        PriorityTier.TIER_3: [2, 3, 4],
+    }
+    tier_labels = {
+        PriorityTier.TIER_1: "Tier 1 (Super Dream)",
+        PriorityTier.TIER_2: "Tier 2 (Core/Product)",
+        PriorityTier.TIER_3: "Tier 3 (Mass Recruiters)",
+    }
+
+    scheduled_by_tier = {t: 0 for t in PriorityTier}
+    demand_by_tier = {t: 0 for t in PriorityTier}
+    demand_mins_by_tier = {t: 0 for t in PriorityTier}
+    comp_tier_map = {c.id: c.tier for c in st.session_state.companies}
+    comp_dur_map = {c.id: c.duration_minutes for c in st.session_state.companies}
+
+    for c in st.session_state.companies:
+        demand_by_tier[c.tier] += len(c.shortlisted_students)
+        demand_mins_by_tier[c.tier] += len(c.shortlisted_students) * c.duration_minutes
+
+    for iv in st.session_state.schedule:
+        if iv.status == "SCHEDULED":
+            scheduled_by_tier[comp_tier_map[iv.company_id]] += 1
+
+    capacity_rows = []
+    for t in PriorityTier:
+        window_days = tier_day_windows[t]
+        # NOTE: this is each tier's own day-window capacity, not accounting
+        # for the fact multiple tiers overlap on shared days (e.g. Tier-2
+        # and Tier-3 both compete for days 2-3) — actual effective capacity
+        # per tier is lower than this number whenever days are shared.
+        own_window_capacity = ROOM_CAPACITY_PER_DAY * len(window_days)
+        demanded = demand_by_tier[t]
+        matched = scheduled_by_tier[t]
+        capacity_rows.append({
+            "Tier": tier_labels[t],
+            "Day Window": ", ".join(f"Day {d}" for d in window_days),
+            "Requests (demand)": demanded,
+            "Demand (room-min)": demand_mins_by_tier[t],
+            "Own-Window Capacity (room-min)": own_window_capacity,
+            "Actually Matched": matched,
+            "Match Rate": f"{round(100 * matched / demanded, 1) if demanded else 0}%",
+        })
+
+    st.dataframe(pd.DataFrame(capacity_rows), use_container_width=True, hide_index=True)
+
+    st.info(
+        "Days 2 and 3 are shared between Tier-2 and Tier-3 (and Day 2 also serves Tier-1), "
+        "so a tier's real available capacity is lower than its 'own-window' number whenever "
+        "higher-priority tiers are also drawing on the same days. This is why Tier-3 "
+        "structurally has the lowest match rate even with a well-tuned scheduler — "
+        "it sits last in priority order on the most contested days."
+    )
 
 # Disruption Option 3: Defense Combo Stress-Test
 with st.sidebar.expander("🚨 Live Defense Stress Test"):

@@ -28,6 +28,10 @@ class PlacementScheduler:
         # Availability trackers: maps ID -> list of (day, start_time, end_time)
         self.student_busy: Dict[str, List[Tuple[int, int, int]]] = {s.id: [] for s in students}
         self.room_busy: Dict[str, List[Tuple[int, int, int]]] = {r.id: [] for r in rooms}
+        # Tracks total booked minutes per room so allocation can prefer the
+        # least-loaded room instead of always scanning R01, R02... in fixed
+        # order, which used to cluster bookings and fragment capacity.
+        self.room_load_minutes: Dict[str, int] = {r.id: 0 for r in rooms}
         # Panel busy map: (company_id, panel_index) -> list of (day, start_time, end_time)
         self.panel_busy: Dict[Tuple[str, int], List[Tuple[int, int, int]]] = {}
         for c in companies:
@@ -44,11 +48,17 @@ class PlacementScheduler:
         return False
 
     def _find_available_room(self, day: int, start: int, end: int) -> Optional[str]:
-        """Finds the first free room for the given window."""
-        for room in self.rooms:
-            if not self._is_busy(self.room_busy[room.id], day, start, end):
-                return room.id
-        return None
+        """Finds the free room with the lowest total booked minutes so far.
+        Preferring the least-loaded room (rather than always R01, R02...)
+        spreads bookings more evenly across the day and reduces the
+        fragmentation that used to strand slots later in the schedule."""
+        candidates = [
+            room for room in self.rooms
+            if not self._is_busy(self.room_busy[room.id], day, start, end)
+        ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda r: self.room_load_minutes[r.id]).id
 
     def generate_schedule(self) -> ScheduleResult:
         result = ScheduleResult()
@@ -122,6 +132,7 @@ class PlacementScheduler:
                     self.student_busy[s_id].append((day, start_time, end_time))
                     self.panel_busy[(c_id, free_panel)].append((day, start_time, end_time))
                     self.room_busy[free_room_id].append((day, start_time, end_time))
+                    self.room_load_minutes[free_room_id] += duration
 
                     interview = Interview(
                         id=f"INT_{interview_counter:04d}",

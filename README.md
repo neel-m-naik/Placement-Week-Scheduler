@@ -33,9 +33,14 @@ Reshuffling is strictly bounded to the blast radius of the disruption (e.g., onl
 ### 1. Install Dependencies
 ```bash
 pip install -r requirements.txt
+```
 
+### 2. Run the Coordinator Dashboard
+```bash
 streamlit run app.py
+```
 
+### 3. Run the Automated CLI Test Suite
+```bash
 python test_simulation.py
-
----
+```

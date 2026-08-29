@@ -62,6 +62,14 @@ def generate_placement_dataset(seed: int = 42):
         ))
 
     # 4. Realistic Shortlisting Logic (Simulating heavy schedule overlap)
+    #
+    # Sized against actual shared room-minute capacity so total demand is
+    # oversubscribed enough to be realistic (there SHOULD be some contention
+    # and unscheduled leftovers) without being mathematically impossible.
+    # Total capacity = 20 rooms x 480 min/day x 4 days = 38,400 room-minutes.
+    # Target ~1.15-1.3x of that in total demand, split across tiers roughly
+    # proportional to their day-window access (Tier-1: days 1-2, Tier-2:
+    # days 1-3, Tier-3: days 2-4) so no single tier is structurally starved.
     for company in companies:
         eligible_students = [s for s in students if s.cgpa >= company.cgpa_cutoff]
         
@@ -72,12 +80,15 @@ def generate_placement_dataset(seed: int = 42):
             eligible_students.sort(key=lambda s: s.cgpa, reverse=True)
             shortlist = eligible_students[:sample_size]
         elif company.tier == PriorityTier.TIER_2:
-            # Shortlists 60-100 candidates
-            sample_size = min(len(eligible_students), random.randint(60, 100))
+            # Shortlists 40-70 candidates (12 companies x ~55 avg x 30min
+            # = ~19,800 room-min demand, sharing days 1-3 with Tier-1/Tier-3)
+            sample_size = min(len(eligible_students), random.randint(40, 70))
             shortlist = random.sample(eligible_students, sample_size)
         else:
-            # Tier-3 / Mass recruiters shortlist 150-300 candidates
-            sample_size = min(len(eligible_students), random.randint(150, 300))
+            # Tier-3 / Mass recruiters shortlist 35-65 candidates.
+            # 18 companies x ~50 avg x 20min = ~18,000 room-min demand,
+            # sharing days 2-4 with Tier-1 (day 2 only) and Tier-2 (days 2-3).
+            sample_size = min(len(eligible_students), random.randint(35, 65))
             shortlist = random.sample(eligible_students, sample_size)
             
         for student in shortlist:

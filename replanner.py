@@ -59,18 +59,28 @@ class PlacementReplanner:
             if iv.company_id == company_id and iv.day == current_day and iv.start_time >= current_time and iv.status == "SCHEDULED"
         ]
 
+        # Preserve each interview's original relative ordering so the earliest
+        # -scheduled interviews still get first pick of the post-delay slots
+        # (keeps churn low and avoids arbitrarily reordering the queue).
+        affected.sort(key=lambda iv: iv.start_time)
+
         for iv in affected:
             iv.status = "PENDING_RESCHEDULE"
 
         student_busy, room_busy, panel_busy = self._rebuild_occupancy(self.schedule)
         comp = self.companies[company_id]
-        effective_start = max(current_time, current_time + delay_minutes)
 
         for iv in affected:
             old_slot = self._format_slot(iv.day, iv.start_time, iv.room_id, iv.panel_id)
             rescheduled = False
 
-            for start_t in range(effective_start, DAY_END_MINUTES - iv.duration_minutes + 1, 15):
+            # Each interview shifts by delay_minutes from its OWN original
+            # start time (not a single global floor), so a 9:00 interview
+            # delayed 60min searches from 10:00, and an 11:15 interview
+            # delayed 60min searches from 12:15 — never earlier than before.
+            iv_effective_start = max(current_time, iv.start_time + delay_minutes)
+
+            for start_t in range(iv_effective_start, DAY_END_MINUTES - iv.duration_minutes + 1, 15):
                 end_t = start_t + iv.duration_minutes
 
                 # Check student free
